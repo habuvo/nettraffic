@@ -1,108 +1,63 @@
 package main
 
 import (
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcap"
-	"github.com/google/gopacket/layers"
-	"net"
 	"os"
+	"nettraffic/handle"
+	"log"
+	"os/signal"
+	"syscall"
 	"encoding/json"
-	"fmt"
-	"strings"
 )
 
 func main() {
 
-	type sniff struct {
-		SrcIP   net.IP
-		SrcPort int
-		DesIP   net.IP
-		DesPort int
-		Payload int
-	}
+	var recData handle.SniffData
 
-	var handle *pcap.Handle
-	var devName string
+	// Listen on the interface
+	sniff := handle.NewPcapSniffer()
+	chanSniff := make(chan handle.SniffData)
 
-	defer handle.Close()
 
-	//get all sniffable devices
-	dev, err := pcap.FindAllDevs()
-	if err != nil {
-		panic(err)
-	}
-
-	//get unicast interface
-	iface, err := defaultIface()
-	if err != nil {
-		panic(err)
-	}
-
-	//find unicast device
-	for _, curr := range dev {
-		if strings.Contains(iface[0].String(), curr.Addresses[0].IP.String()) {
-			devName = curr.Name
-		}
-	}
-
-	var eth layers.Ethernet
-	var ip4 layers.IPv4
-	var tcp layers.TCP
-
-	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &ip4, &tcp, &eth)
-	decoded := []gopacket.LayerType{}
+	// On ^C or SIGTERM, gracefully stop anything running
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 
 	f, err := os.Create("sniff.txt")
+	if err != nil {
+		log.Fatal("Error create file :", err)
+	}
 	defer f.Close()
 
-	handle, err = pcap.OpenLive(devName, 1600, true, pcap.BlockForever)
-	if err != nil {
-		panic(err)
-	} else {
-		packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-		for packet := range packetSource.Packets() {
 
-			if err := parser.DecodeLayers(packet.Data(), &decoded); err != nil {
-				sn := sniff{}
-				for _, layerType := range decoded {
-			
-					switch layerType {
-					case layers.LayerTypeTCP:
+	go func() {
+		<-sigc
+		log.Print("Received sigterm/sigint, stopping")
+		sniff.IsRunning = false
+	}()
 
-						sn.SrcPort = int(tcp.SrcPort)
-						sn.DesPort = int(tcp.DstPort)
-						sn.Payload = len(tcp.Payload)
+	go func() {
+		for {
+			recData = <-chanSniff
 
-					case layers.LayerTypeIPv4:
-
-						sn.SrcIP = ip4.SrcIP
-						sn.DesIP = ip4.DstIP
-					}
-
-				}
-
-				if sn.Payload > 0 {
-					st, err := json.Marshal(sn)
-					if err != nil {
-						panic(err)
-					}
-					f.Write(st)
-					f.WriteString("\n")
-				}
+			if str, err := json.Marshal(recData); err == nil {
+				f.Write(str)
+				f.WriteString("\n")
+			} else {
+				log.Fatal("Error marshaling data : ", err)
 			}
 		}
-	}
-}
+	}()
 
-func defaultIface() ([]net.Addr, error) {
-	ifaces, _ := net.Interfaces()
-
-	for _, candidate := range ifaces {
-		f := candidate.Flags
-		if (f&net.FlagUp != 0) && (f&net.FlagLoopback == 0) {
-			addr, err := candidate.Addrs()
-			return []net.Addr(addr), err
-		}
+	if err := sniff.Open(); err != nil {
+		log.Fatal("Failed to open the sniffer: ", err)
 	}
-	return nil, fmt.Errorf("No valid interface for sniffing")
+
+	defer sniff.Close()
+
+	log.Printf("Listening %s\n", sniff.InFace.Name)
+
+	sniff.Listen(chanSniff)
+
+	log.Print("Successful exit")
+
 }
