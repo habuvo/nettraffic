@@ -7,6 +7,7 @@ import (
 	"strings"
 	"net"
 	"github.com/google/gopacket/layers"
+	"log"
 )
 
 type SniffData struct {
@@ -58,10 +59,16 @@ func (s *PcapSniffer) Open() error {
 	if err != nil {
 		return err
 	}
+
 	for _, curr := range dev {
-		if strings.Contains(addr[0].String(), curr.Addresses[0].IP.String()) {
+		if len(curr.Addresses) !=0 && strings.Contains(addr[0].String(), curr.Addresses[0].IP.String()) {
 			devName = curr.Name
+			break
 		}
+	}
+
+	if len(devName) == 0 {
+		log.Fatal("No proper device for sniffing")
 	}
 
 	s.Handle, err = pcap.OpenLive(devName, int32(s.InFace.MTU)+100, true, pcap.BlockForever)
