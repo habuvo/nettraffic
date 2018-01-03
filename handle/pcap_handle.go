@@ -61,7 +61,7 @@ func (s *PcapSniffer) Open() error {
 	}
 
 	for _, curr := range dev {
-		if len(curr.Addresses) !=0 && strings.Contains(addr[0].String(), curr.Addresses[0].IP.String()) {
+		if len(curr.Addresses) != 0 && strings.Contains(addr[0].String(), curr.Addresses[0].IP.String()) {
 			devName = curr.Name
 			break
 		}
@@ -72,6 +72,9 @@ func (s *PcapSniffer) Open() error {
 	}
 
 	s.Handle, err = pcap.OpenLive(devName, int32(s.InFace.MTU)+100, true, pcap.BlockForever)
+	if strings.Contains(err.Error(), "promiscuous") {
+		s.Handle, err = pcap.OpenLive(devName, int32(s.InFace.MTU)+100, false, pcap.BlockForever)
+	}
 	if err != nil {
 		return err
 	}

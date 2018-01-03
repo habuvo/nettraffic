@@ -17,7 +17,6 @@ func main() {
 	sniff := handle.NewPcapSniffer()
 	chanSniff := make(chan handle.SniffData)
 
-
 	// On ^C or SIGTERM, gracefully stop anything running
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
@@ -27,7 +26,6 @@ func main() {
 		log.Fatal("Error create file :", err)
 	}
 	defer f.Close()
-
 
 	go func() {
 		<-sigc
